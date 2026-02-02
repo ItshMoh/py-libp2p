@@ -1,13 +1,14 @@
 """
 CID (Content Identifier) utilities for Bitswap.
 
-This module provides simplified CID encoding/decoding for different Bitswap
-protocol versions.
-Note: This is a simplified implementation for demonstration. In production,
-use a proper CID library like py-cid or multiformats.
+This module provides CID encoding/decoding for different Bitswap protocol versions.
+Uses py-cid library for standards-compliant CID handling.
 """
 
 import hashlib
+
+from cid import CIDv0, CIDv1
+from cid.builder import V0Builder, V1Builder
 
 # Simplified CID version constants
 CID_V0 = 0
@@ -21,12 +22,34 @@ CODEC_RAW = 0x55
 HASH_SHA256 = 0x12
 
 
+def _codec_int_to_name(codec: int) -> str:
+    """
+    Convert multicodec int to name.
+
+    Args:
+        codec: Multicodec integer code
+
+    Returns:
+        Codec name string
+
+    Raises:
+        ValueError: If codec is unknown
+
+    """
+    if codec == CODEC_RAW:
+        return "raw"
+    elif codec == CODEC_DAG_PB:
+        return "dag-pb"
+    else:
+        raise ValueError(f"Unknown codec: {codec}")
+
+
 def compute_cid_v0(data: bytes) -> bytes:
     """
-    Compute a CIDv0 for data (simplified version).
+    Compute a CIDv0 for data.
 
     CIDv0 is just a base58-encoded multihash (SHA-256).
-    For simplicity, we return the raw multihash bytes.
+    Returns the raw multihash bytes.
 
     Args:
         data: The data to hash
@@ -35,19 +58,31 @@ def compute_cid_v0(data: bytes) -> bytes:
         CIDv0 as bytes (multihash format)
 
     """
-    # Compute SHA-256 hash
-    digest = hashlib.sha256(data).digest()
+    builder = V0Builder()
+    cid = builder.sum(data)
+    return cid.buffer
 
-    # Multihash format: <hash-type><hash-length><hash-digest>
-    # 0x12 = SHA-256, 0x20 = 32 bytes
-    multihash = bytes([HASH_SHA256, len(digest)]) + digest
 
-    return multihash
+def compute_cid_v0_obj(data: bytes) -> CIDv0:
+    """
+    Compute a CIDv0 for data and return the CID object.
+
+    This gives access to full py-cid API features like .encode(), .to_v1(), etc.
+
+    Args:
+        data: The data to hash
+
+    Returns:
+        CIDv0 object
+
+    """
+    builder = V0Builder()
+    return builder.sum(data)
 
 
 def compute_cid_v1(data: bytes, codec: int = CODEC_RAW) -> bytes:
     """
-    Compute a CIDv1 for data (simplified version).
+    Compute a CIDv1 for data.
 
     CIDv1 format: <version><codec><multihash>
 
@@ -59,14 +94,30 @@ def compute_cid_v1(data: bytes, codec: int = CODEC_RAW) -> bytes:
         CIDv1 as bytes
 
     """
-    # Compute SHA-256 multihash
-    digest = hashlib.sha256(data).digest()
-    multihash = bytes([HASH_SHA256, len(digest)]) + digest
+    codec_name = _codec_int_to_name(codec)
+    builder = V1Builder(codec=codec_name, mh_type="sha2-256")
+    cid = builder.sum(data)
+    return cid.buffer
 
-    # CIDv1 format: <version><codec><multihash>
-    cid = bytes([CID_V1, codec]) + multihash
 
-    return cid
+def compute_cid_v1_obj(data: bytes, codec: int = CODEC_RAW) -> CIDv1:
+    """
+    Compute a CIDv1 for data and return the CID object.
+
+    This gives access to full py-cid API features like .encode(), .to_v0(),
+    .loggable(), etc.
+
+    Args:
+        data: The data to hash
+        codec: Multicodec code (default: raw)
+
+    Returns:
+        CIDv1 object
+
+    """
+    codec_name = _codec_int_to_name(codec)
+    builder = V1Builder(codec=codec_name, mh_type="sha2-256")
+    return builder.sum(data)
 
 
 def get_cid_prefix(cid: bytes) -> bytes:
