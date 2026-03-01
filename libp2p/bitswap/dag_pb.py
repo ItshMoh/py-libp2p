@@ -213,7 +213,7 @@ def create_file_node(chunks: Sequence[tuple[CIDInput, int]]) -> bytes:
     blocksizes = []
 
     for i, (cid, size) in enumerate(chunks):
-        links.append(Link(cid=_normalize_link_cid(cid), name=f"chunk{i}", size=size))
+        links.append(Link(cid=cid, name=f"chunk{i}", size=size))
         blocksizes.append(size)
         total_size += size
 
@@ -243,7 +243,7 @@ def create_directory_node(entries: Sequence[tuple[str, CIDInput, int]]) -> bytes
     links = []
 
     for name, cid, size in entries:
-        links.append(Link(cid=_normalize_link_cid(cid), name=name, size=size))
+        links.append(Link(cid=cid, name=name, size=size))
 
     unixfs_data = UnixFSData(type="directory")
 
