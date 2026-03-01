@@ -20,7 +20,7 @@ from .block_store import BlockStore, MemoryBlockStore
 from .cid import (
     CIDInput,
     cid_to_bytes,
-    cid_to_text,
+    format_cid_for_display,
     get_cid_prefix,
     reconstruct_cid_from_prefix_and_data,
     verify_cid,
@@ -44,22 +44,6 @@ from .messages import create_message, create_wantlist_entry
 from .pb.bitswap_pb2 import Message
 
 logger = logging.getLogger(__name__)
-
-
-def _format_cid(cid: bytes) -> str:
-    """Return canonical CID text for logs, falling back to hex for invalid bytes."""
-    try:
-        return cid_to_text(cid)
-    except (TypeError, ValueError):
-        return cid.hex()
-
-
-def _format_cid_short(cid: bytes, prefix_len: int = 16) -> str:
-    """Return a shortened CID string for compact log lines."""
-    cid_text = _format_cid(cid)
-    if len(cid_text) <= prefix_len:
-        return cid_text
-    return f"{cid_text[:prefix_len]}..."
 
 
 class BitswapClient:
@@ -156,7 +140,9 @@ class BitswapClient:
         cid_bytes = cid_to_bytes(cid)
 
         await self.block_store.put_block(cid_bytes, data)
-        logger.debug(f"Added block {_format_cid_short(cid_bytes)} to store")
+        logger.debug(
+            f"Added block {format_cid_for_display(cid_bytes, max_len=16)} to store"
+        )
 
         # Notify peers who wanted this block
         await self._notify_peers_about_block(cid_bytes, data)
@@ -218,7 +204,7 @@ class BitswapClient:
             "send_dont_have": send_dont_have,
         }
         logger.debug(
-            f"Added {_format_cid_short(cid_bytes)} to wantlist "
+            f"Added {format_cid_for_display(cid_bytes, max_len=16)} to wantlist "
             f"(priority={priority}, type={'Have' if want_type else 'Block'})"
         )
 
@@ -272,7 +258,9 @@ class BitswapClient:
 
         if cid_bytes in self._wantlist:
             del self._wantlist[cid_bytes]
-            logger.debug(f"Removed {_format_cid_short(cid_bytes)} from wantlist")
+            logger.debug(
+                f"Removed {format_cid_for_display(cid_bytes, max_len=16)} from wantlist"
+            )
 
             # Send cancel message to all peers
             await self._broadcast_cancel(cid_bytes)
@@ -281,7 +269,7 @@ class BitswapClient:
         self, cid: bytes, peer_id: PeerID | None, timeout: float
     ) -> bytes:
         """Request a block from the network."""
-        logger.info(f"📤 Requesting block: {_format_cid(cid)}")
+        logger.info(f"📤 Requesting block: {format_cid_for_display(cid)}")
 
         # Add to wantlist with sendDontHave=True for v1.2.0
         await self.want_block(cid, send_dont_have=True)
@@ -310,14 +298,16 @@ class BitswapClient:
             # Get the block from store
             data = await self.block_store.get_block(cid)
             if data is None:
-                error = BlockNotFoundError(f"Block {_format_cid_short(cid)} not found")
+                error = BlockNotFoundError(
+                    f"Block {format_cid_for_display(cid, max_len=16)} not found"
+                )
             else:
                 result = data
                 logger.info(f"  ✓ Block received! Size: {len(data)} bytes")
         except trio.TooSlowError as e:
-            logger.error(f"  ✗ TIMEOUT waiting for block {_format_cid(cid)}")
+            logger.error(f"  ✗ TIMEOUT waiting for block {format_cid_for_display(cid)}")
             error = BitswapTimeoutError(
-                f"Timeout waiting for block {_format_cid_short(cid)}"
+                f"Timeout waiting for block {format_cid_for_display(cid, max_len=16)}"
             )
             error.__cause__ = e
         finally:
@@ -344,7 +334,7 @@ class BitswapClient:
             f"Adding {len(cids)} CIDs to expected_blocks for peer {peer_id_str}"
         )
         for cid in cids:
-            logger.info(f"  + {_format_cid(cid)}")
+            logger.info(f"  + {format_cid_for_display(cid)}")
 
         self._expected_blocks[peer_id].update(cids)
 
@@ -471,7 +461,10 @@ class BitswapClient:
                     [TProtocol(peer_protocol)],
                 )
                 await self._write_message(stream, msg)
-                logger.debug(f"Sent block {_format_cid_short(cid)} to peer {peer_id}")
+                logger.debug(
+                    f"Sent block {format_cid_for_display(cid, max_len=16)} "
+                    f"to peer {peer_id}"
+                )
             except Exception as e:
                 logger.error(f"Failed to send block to peer {peer_id}: {e}")
 
@@ -537,7 +530,7 @@ class BitswapClient:
                     logger.error(f"Peer: {peer_id_str}")
                     logger.error(f"Missing {remaining} blocks:")
                     for i, cid in enumerate(self._expected_blocks[peer_id]):
-                        logger.error(f"  {i + 1}. {_format_cid(cid)}")
+                        logger.error(f"  {i + 1}. {format_cid_for_display(cid)}")
                     logger.error("=" * 70)
                     logger.error("")
                 del self._expected_blocks[peer_id]
@@ -684,7 +677,7 @@ class BitswapClient:
         logger.info(f"Expected {len(expected_cids)} blocks from this peer")
         logger.info("Expected CIDs:")
         for i, cid in enumerate(expected_cids):
-            logger.info(f"  {i + 1}. {_format_cid(cid)}")
+            logger.info(f"  {i + 1}. {format_cid_for_display(cid)}")
         logger.info("=" * 70)
 
         for idx, block_data in enumerate(blocks):
@@ -699,10 +692,14 @@ class BitswapClient:
             matched_cid = None
             logger.info(f"  Checking against {len(expected_cids)} expected CIDs...")
             for i, cid in enumerate(expected_cids):
-                logger.info(f"    Attempt {i + 1}: Checking CID {_format_cid(cid)}")
+                logger.info(
+                    f"    Attempt {i + 1}: Checking CID {format_cid_for_display(cid)}"
+                )
                 if verify_cid(cid, block_data):
                     matched_cid = cid
-                    logger.info(f"  ✓ MATCHED CID: {_format_cid(matched_cid)}")
+                    logger.info(
+                        f"  ✓ MATCHED CID: {format_cid_for_display(matched_cid)}"
+                    )
                     break
                 else:
                     logger.info("    -> No match")
@@ -732,7 +729,7 @@ class BitswapClient:
                 logger.error("  Block doesn't match any expected CID")
                 logger.error(f"  Expected CIDs ({len(expected_cids)}):")
                 for i, cid in enumerate(list(expected_cids)[:5]):
-                    logger.error(f"    {i + 1}. {_format_cid(cid)}")
+                    logger.error(f"    {i + 1}. {format_cid_for_display(cid)}")
                 if len(expected_cids) > 5:
                     logger.error(f"    ... and {len(expected_cids) - 5} more")
 
@@ -743,7 +740,7 @@ class BitswapClient:
         if remaining:
             logger.warning(f"  Still waiting for {len(remaining)} blocks:")
             for i, cid in enumerate(remaining):
-                logger.warning(f"    {i + 1}. {_format_cid(cid)}")
+                logger.warning(f"    {i + 1}. {format_cid_for_display(cid)}")
         else:
             logger.info("  ✓ All blocks received from this peer!")
         logger.info("=" * 70)
@@ -761,7 +758,8 @@ class BitswapClient:
             # Store the block
             await self.block_store.put_block(cid, data)
             logger.debug(
-                f"Received and stored block {_format_cid_short(cid)} (v1.1.0+)"
+                f"Received and stored block {format_cid_for_display(cid, max_len=16)} "
+                f"(v1.1.0+)"
             )
 
             # Remove from expected blocks for all peers
@@ -771,11 +769,15 @@ class BitswapClient:
             # Notify pending requests
             if cid in self._pending_requests:
                 logger.debug(
-                    f"Notifying pending request for {_format_cid_short(cid)}..."
+                    f"Notifying pending request for "
+                    f"{format_cid_for_display(cid, max_len=16)}..."
                 )
                 self._pending_requests[cid].set()
             else:
-                logger.debug(f"No pending request for {_format_cid_short(cid)}...")
+                logger.debug(
+                    f"No pending request for "
+                    f"{format_cid_for_display(cid, max_len=16)}..."
+                )
 
     async def _process_block_presences(
         self, presences: Sequence[Any], peer_id: PeerID
@@ -793,7 +795,8 @@ class BitswapClient:
             has_block = presence.type == Message.Have
 
             logger.debug(
-                f"Received presence from {peer_id} for {_format_cid_short(cid)}: "
+                f"Received presence from {peer_id} for "
+                f"{format_cid_for_display(cid, max_len=16)}: "
                 f"{'Have' if has_block else 'DontHave'}"
             )
 
@@ -811,7 +814,8 @@ class BitswapClient:
                 self._dont_have_responses[cid].add(peer_id)
 
                 logger.info(
-                    f"  ℹ️  Peer {peer_id} doesn't have block {_format_cid_short(cid)} "
+                    f"  ℹ️  Peer {peer_id} doesn't have block "
+                    f"{format_cid_for_display(cid, max_len=16)} "
                     f"(DontHave response) - will try other peers or timeout"
                 )
 

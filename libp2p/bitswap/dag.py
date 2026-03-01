@@ -27,8 +27,8 @@ from .cid import (
     CODEC_RAW,
     CIDInput,
     cid_to_bytes,
-    cid_to_text,
     compute_cid_v1,
+    format_cid_for_display,
     verify_cid,
 )
 from .client import BitswapClient
@@ -63,22 +63,6 @@ async def _call_progress_callback(
         await callback(current, total, status)
     else:
         callback(current, total, status)
-
-
-def _format_cid(cid: bytes) -> str:
-    """Return canonical CID text for logs, falling back to hex for invalid bytes."""
-    try:
-        return cid_to_text(cid)
-    except (TypeError, ValueError):
-        return cid.hex()
-
-
-def _format_cid_short(cid: bytes, prefix_len: int = 16) -> str:
-    """Return shortened CID text for compact log lines."""
-    cid_text = _format_cid(cid)
-    if len(cid_text) <= prefix_len:
-        return cid_text
-    return f"{cid_text[:prefix_len]}..."
 
 
 class MerkleDag:
@@ -186,7 +170,9 @@ class MerkleDag:
                     progress_callback, file_size, file_size, "completed"
                 )
 
-            logger.info(f"Added file as single block: {_format_cid_short(cid)}")
+            logger.info(
+                f"Added file as single block: {format_cid_for_display(cid, max_len=16)}"
+            )
 
             # Wrap in directory if requested
             if wrap_with_directory:
@@ -205,7 +191,7 @@ class MerkleDag:
 
                 logger.info(
                     f"Created directory wrapper. Directory CID: "
-                    f"{_format_cid_short(dir_cid)}"
+                    f"{format_cid_for_display(dir_cid, max_len=16)}"
                 )
                 return dir_cid
 
@@ -242,12 +228,12 @@ class MerkleDag:
 
             # Enhanced logging with full CID
             logger.info(
-                f"Chunk {i + 1}: CID={_format_cid(chunk_cid)}, "
+                f"Chunk {i + 1}: CID={format_cid_for_display(chunk_cid)}, "
                 f"Size={len(chunk_data)} bytes, "
                 f"Progress={bytes_processed}/{file_size}"
             )
             logger.debug(
-                f"Stored chunk {i}: {_format_cid_short(chunk_cid)} "
+                f"Stored chunk {i}: {format_cid_for_display(chunk_cid, max_len=16)} "
                 f"({len(chunk_data)} bytes)"
             )
 
@@ -264,17 +250,20 @@ class MerkleDag:
         # Enhanced logging for root CID
         logger.info("=== File chunking completed ===")
         logger.info(
-            f"Root CID: {_format_cid(root_cid)} (Links to {len(chunks_data)} chunks)"
+            f"Root CID: {format_cid_for_display(root_cid)} "
+            f"(Links to {len(chunks_data)} chunks)"
         )
         logger.info(f"Total file size: {file_size} bytes")
         logger.info("=== Chunk CIDs ===")
         for i, (chunk_cid, chunk_size) in enumerate(chunks_data):
-            logger.info(f"  Chunk {i}: {_format_cid(chunk_cid)} ({chunk_size} bytes)")
+            logger.info(
+                f"  Chunk {i}: {format_cid_for_display(chunk_cid)} ({chunk_size} bytes)"
+            )
         logger.info("=" * 50)
 
         logger.info(
             f"Added file with {len(chunks_data)} chunks. "
-            f"Root CID: {_format_cid_short(root_cid)}"
+            f"Root CID: {format_cid_for_display(root_cid, max_len=16)}"
         )
 
         if progress_callback:
@@ -298,7 +287,7 @@ class MerkleDag:
 
             logger.info(
                 "Created directory wrapper. Directory CID: "
-                f"{_format_cid_short(dir_cid)}"
+                f"{format_cid_for_display(dir_cid, max_len=16)}"
             )
             return dir_cid
 
@@ -428,9 +417,12 @@ class MerkleDag:
 
         """
         root_cid_bytes = cid_to_bytes(root_cid)
-        logger.info(f"Fetching file: {_format_cid_short(root_cid_bytes)}")
         logger.info(
-            f"=== Starting file fetch for CID: {_format_cid(root_cid_bytes)} ==="
+            f"Fetching file: {format_cid_for_display(root_cid_bytes, max_len=16)}"
+        )
+        logger.info(
+            "=== Starting file fetch for CID: "
+            f"{format_cid_for_display(root_cid_bytes)} ==="
         )
 
         # Get root block
@@ -439,7 +431,8 @@ class MerkleDag:
         # Verify root block
         if not verify_cid(root_cid_bytes, root_data):
             raise ValueError(
-                f"Root block verification failed: {_format_cid(root_cid_bytes)}"
+                "Root block verification failed: "
+                f"{format_cid_for_display(root_cid_bytes)}"
             )
 
         # Check if it's a directory wrapper (IPFS-standard way for filename)
@@ -458,7 +451,10 @@ class MerkleDag:
                 actual_file_cid = first_link.cid
 
                 logger.info(f"Extracted filename: {filename}")
-                logger.info(f"Actual file CID: {_format_cid_short(actual_file_cid)}")
+                logger.info(
+                    f"Actual file CID: "
+                    f"{format_cid_for_display(actual_file_cid, max_len=16)}"
+                )
 
                 # Fetch the actual file block
                 actual_file_data = await self.bitswap.get_block(
@@ -468,7 +464,7 @@ class MerkleDag:
                 if not verify_cid(actual_file_cid, actual_file_data):
                     raise ValueError(
                         "File block verification failed: "
-                        f"{_format_cid(actual_file_cid)}"
+                        f"{format_cid_for_display(actual_file_cid)}"
                     )
 
         # Now process the actual file data
@@ -505,7 +501,10 @@ class MerkleDag:
             )
             logger.info("=== Chunk CIDs to fetch ===")
             for i, link in enumerate(links):
-                logger.info(f"  Chunk {i}: {_format_cid(link.cid)} ({link.size} bytes)")
+                logger.info(
+                    f"  Chunk {i}: {format_cid_for_display(link.cid)} "
+                    f"({link.size} bytes)"
+                )
             logger.info("=" * 50)
 
             # Notify progress callback with file metadata at the start
@@ -531,7 +530,8 @@ class MerkleDag:
                     )
 
                 logger.info(
-                    f"Fetching chunk {i + 1}/{len(links)}: CID={_format_cid(link.cid)}"
+                    f"Fetching chunk {i + 1}/{len(links)}: "
+                    f"CID={format_cid_for_display(link.cid)}"
                 )
 
                 # Fetch chunk
@@ -540,7 +540,7 @@ class MerkleDag:
                 # Verify chunk
                 if not verify_cid(link.cid, chunk_data):
                     raise ValueError(
-                        f"Chunk verification failed: {_format_cid(link.cid)}"
+                        f"Chunk verification failed: {format_cid_for_display(link.cid)}"
                     )
 
                 file_data += chunk_data
@@ -552,7 +552,8 @@ class MerkleDag:
                 )
                 logger.debug(
                     f"Fetched chunk {i + 1}/{len(links)}: "
-                    f"{_format_cid_short(link.cid)} ({len(chunk_data)} bytes)"
+                    f"{format_cid_for_display(link.cid, max_len=16)} "
+                    f"({len(chunk_data)} bytes)"
                 )
 
             if progress_callback:
